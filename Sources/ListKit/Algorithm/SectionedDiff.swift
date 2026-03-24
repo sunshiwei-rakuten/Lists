@@ -5,7 +5,7 @@ import Foundation
 
 // MARK: - DiffStrategy
 
-enum DiffStrategy: Sendable {
+public enum DiffStrategy: Sendable {
   /// O(n) prefix check. Produces updates for matched prefix + inserts for tail.
   /// Falls back to `.full` on any structural mismatch.
   case streaming
@@ -16,6 +16,9 @@ enum DiffStrategy: Sendable {
 // MARK: - SectionedDiff
 
 enum SectionedDiff {
+
+  // MARK: Internal
+
   /// Computes a `StagedChangeset` by diffing two snapshots at both the section and item level.
   ///
   /// Uses per-section HeckelDiff for surviving sections, skipping sections whose items
@@ -34,7 +37,7 @@ enum SectionedDiff {
     return fullDiff(old: old, new: new)
   }
 
-  // MARK: - Streaming Fast-Path
+  // MARK: Private
 
   /// O(n) prefix-based diff: requires identical section order and old items being
   /// a prefix of new items in every section. Produces `itemUpdates` for the matched
@@ -113,8 +116,6 @@ enum SectionedDiff {
       itemUpdates: itemUpdates
     )
   }
-
-  // MARK: - Full Diff
 
   private static func fullDiff<SectionID: Hashable & Sendable, ItemID: Hashable & Sendable>(
     old: DiffableDataSourceSnapshot<SectionID, ItemID>,

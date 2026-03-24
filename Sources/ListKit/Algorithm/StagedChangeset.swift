@@ -5,22 +5,22 @@ import Foundation
 
 // MARK: - StagedChangeset
 
-struct StagedChangeset<SectionID: Hashable & Sendable, ItemID: Hashable & Sendable>: Sendable {
-  let sectionDeletes: IndexSet
-  let sectionInserts: IndexSet
-  let sectionMoves: [(from: Int, to: Int)]
-  let sectionReloads: IndexSet
-  let itemDeletes: [IndexPath]
-  let itemInserts: [IndexPath]
-  let itemMoves: [(from: IndexPath, to: IndexPath)]
-  let itemReloads: [IndexPath]
-  let itemReconfigures: [IndexPath]
+public struct StagedChangeset<SectionID: Hashable & Sendable, ItemID: Hashable & Sendable>: Sendable {
+  public let sectionDeletes: IndexSet
+  public let sectionInserts: IndexSet
+  public let sectionMoves: [(from: Int, to: Int)]
+  public let sectionReloads: IndexSet
+  public let itemDeletes: [IndexPath]
+  public let itemInserts: [IndexPath]
+  public let itemMoves: [(from: IndexPath, to: IndexPath)]
+  public let itemReloads: [IndexPath]
+  public let itemReconfigures: [IndexPath]
 
   /// Matched pairs where identity survived; content may have changed.
   /// ID-centric: consumers look up objects by ID, index paths are informational only.
-  let itemUpdates: [(itemId: ItemID, oldPath: IndexPath, newPath: IndexPath)]
+  public let itemUpdates: [(itemId: ItemID, oldPath: IndexPath, newPath: IndexPath)]
 
-  var isEmpty: Bool {
+  public var isEmpty: Bool {
     sectionDeletes.isEmpty
       && sectionInserts.isEmpty
       && sectionMoves.isEmpty
@@ -35,7 +35,7 @@ struct StagedChangeset<SectionID: Hashable & Sendable, ItemID: Hashable & Sendab
 
   /// Structural changes require `performBatchUpdates`.
   /// `itemUpdates` is intentionally excluded: content change != structural change.
-  var hasStructuralChanges: Bool {
+  public var hasStructuralChanges: Bool {
     !sectionDeletes.isEmpty
       || !sectionInserts.isEmpty
       || !sectionMoves.isEmpty
@@ -48,7 +48,7 @@ struct StagedChangeset<SectionID: Hashable & Sendable, ItemID: Hashable & Sendab
 // MARK: Equatable
 
 extension StagedChangeset: Equatable {
-  static func ==(lhs: StagedChangeset, rhs: StagedChangeset) -> Bool {
+  public static func ==(lhs: StagedChangeset, rhs: StagedChangeset) -> Bool {
     lhs.sectionDeletes == rhs.sectionDeletes
       && lhs.sectionInserts == rhs.sectionInserts
       && lhs.sectionMoves.count == rhs.sectionMoves.count
