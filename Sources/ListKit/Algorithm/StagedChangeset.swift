@@ -5,7 +5,7 @@ import Foundation
 
 // MARK: - StagedChangeset
 
-struct StagedChangeset<SectionID: Hashable, ItemID: Hashable>: Sendable {
+struct StagedChangeset<SectionID: Hashable & Sendable, ItemID: Hashable & Sendable>: Sendable {
   let sectionDeletes: IndexSet
   let sectionInserts: IndexSet
   let sectionMoves: [(from: Int, to: Int)]
@@ -15,6 +15,10 @@ struct StagedChangeset<SectionID: Hashable, ItemID: Hashable>: Sendable {
   let itemMoves: [(from: IndexPath, to: IndexPath)]
   let itemReloads: [IndexPath]
   let itemReconfigures: [IndexPath]
+
+  /// Matched pairs where identity survived; content may have changed.
+  /// ID-centric: consumers look up objects by ID, index paths are informational only.
+  let itemUpdates: [(itemId: ItemID, oldPath: IndexPath, newPath: IndexPath)]
 
   var isEmpty: Bool {
     sectionDeletes.isEmpty
@@ -26,8 +30,11 @@ struct StagedChangeset<SectionID: Hashable, ItemID: Hashable>: Sendable {
       && itemMoves.isEmpty
       && itemReloads.isEmpty
       && itemReconfigures.isEmpty
+      && itemUpdates.isEmpty
   }
 
+  /// Structural changes require `performBatchUpdates`.
+  /// `itemUpdates` is intentionally excluded: content change != structural change.
   var hasStructuralChanges: Bool {
     !sectionDeletes.isEmpty
       || !sectionInserts.isEmpty
@@ -53,5 +60,9 @@ extension StagedChangeset: Equatable {
       && zip(lhs.itemMoves, rhs.itemMoves).allSatisfy { $0.from == $1.from && $0.to == $1.to }
       && lhs.itemReloads == rhs.itemReloads
       && lhs.itemReconfigures == rhs.itemReconfigures
+      && lhs.itemUpdates.count == rhs.itemUpdates.count
+      && zip(lhs.itemUpdates, rhs.itemUpdates).allSatisfy {
+        $0.itemId == $1.itemId && $0.oldPath == $1.oldPath && $0.newPath == $1.newPath
+      }
   }
 }

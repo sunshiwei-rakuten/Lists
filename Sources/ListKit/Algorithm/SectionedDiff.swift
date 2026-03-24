@@ -145,7 +145,8 @@ enum SectionedDiff {
       itemInserts: sortedItemInserts,
       itemMoves: itemMoves,
       itemReloads: itemReloads,
-      itemReconfigures: itemReconfigures
+      itemReconfigures: itemReconfigures,
+      itemUpdates: []
     )
   }
 }
