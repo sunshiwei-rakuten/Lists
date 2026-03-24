@@ -192,14 +192,10 @@ enum SectionedDiff {
     }
 
     // 3. Reconcile cross-section candidates.
-    //    Cross-section moves are decomposed into delete + insert rather than emitted
-    //    as moves. This matches the chat render invariant (items don't cross message
-    //    boundaries) and avoids UIKit batch update complications with cross-section moves.
     if crossSectionPossible {
       for (itemID, fromPath) in crossDeleteCandidates {
         if let toPath = crossInsertCandidates.removeValue(forKey: itemID) {
-          itemDeletes.append(fromPath)
-          itemInserts.append(toPath)
+          itemMoves.append((from: fromPath, to: toPath))
         } else {
           itemDeletes.append(fromPath)
         }
