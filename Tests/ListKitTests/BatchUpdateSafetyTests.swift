@@ -165,9 +165,9 @@ struct BatchUpdateSafetyTests {
     #expect(insertedItem5)
   }
 
-  /// A cross-section move should not also appear as a delete + insert pair.
+  /// Cross-section moves are decomposed into delete + insert (not emitted as moves).
   @Test
-  func crossSectionMoveNotDuplicatedAsDeleteInsert() {
+  func crossSectionMoveDecomposedToDeleteInsert() {
     var old = DiffableDataSourceSnapshot<String, Int>()
     old.appendSections(["A", "B"])
     old.appendItems([1, 2, 3], toSection: "A")
@@ -180,15 +180,17 @@ struct BatchUpdateSafetyTests {
 
     let changeset = SectionedDiff.diff(old: old, new: new)
 
-    // Item 2 should be a cross-section move
-    let moveOf2 = changeset.itemMoves.first { move in
-      move.from.section == 0 && move.from.item == 1
-    }
-    #expect(moveOf2 != nil)
+    // No cross-section moves — decomposed to delete + insert
+    let hasCrossSectionMove = changeset.itemMoves.contains { $0.from.section != $0.to.section }
+    #expect(!hasCrossSectionMove)
 
-    // Item 2 should NOT also be in deletes or inserts
+    // Item 2 deleted from section A (old index)
     let deleteOf2 = changeset.itemDeletes.contains { $0.section == 0 && $0.item == 1 }
-    #expect(!deleteOf2, "Cross-section move should not also be a delete")
+    #expect(deleteOf2)
+
+    // Item 2 inserted into section B (new index)
+    let insertOf2 = changeset.itemInserts.contains { $0.section == 1 && $0.item == 1 }
+    #expect(insertOf2)
   }
 
   /// The changeset should produce the correct net item count per section.

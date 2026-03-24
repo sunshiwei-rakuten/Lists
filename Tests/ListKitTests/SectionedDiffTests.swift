@@ -94,7 +94,7 @@ struct SectionedDiffTests {
   }
 
   @Test
-  func crossSectionItemMove() {
+  func crossSectionItemMoveDecomposedToDeleteInsert() {
     var old = DiffableDataSourceSnapshot<String, Int>()
     old.appendSections(["A", "B"])
     old.appendItems([1, 2], toSection: "A")
@@ -106,11 +106,14 @@ struct SectionedDiffTests {
     new.appendItems([3, 2], toSection: "B")
 
     let changeset = SectionedDiff.diff(old: old, new: new)
-    // Item 2 moved from section A to section B
+    // Cross-section moves are decomposed: no cross-section itemMoves emitted
     let hasCrossSectionMove = changeset.itemMoves.contains { move in
       move.from.section != move.to.section
     }
-    #expect(hasCrossSectionMove)
+    #expect(!hasCrossSectionMove)
+    // Instead, item 2 appears as delete from A + insert into B
+    #expect(changeset.itemDeletes.contains(IndexPath(item: 1, section: 0)))
+    #expect(changeset.itemInserts.contains(IndexPath(item: 1, section: 1)))
   }
 
   @Test
