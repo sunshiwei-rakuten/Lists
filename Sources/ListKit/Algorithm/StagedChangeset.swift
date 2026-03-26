@@ -20,6 +20,30 @@ public struct StagedChangeset<SectionID: Hashable & Sendable, ItemID: Hashable &
   /// ID-centric: consumers look up objects by ID, index paths are informational only.
   public let itemUpdates: [(itemId: ItemID, oldPath: IndexPath, newPath: IndexPath)]
 
+  public init(
+    sectionDeletes: IndexSet = IndexSet(),
+    sectionInserts: IndexSet = IndexSet(),
+    sectionMoves: [(from: Int, to: Int)] = [],
+    sectionReloads: IndexSet = IndexSet(),
+    itemDeletes: [IndexPath] = [],
+    itemInserts: [IndexPath] = [],
+    itemMoves: [(from: IndexPath, to: IndexPath)] = [],
+    itemReloads: [IndexPath] = [],
+    itemReconfigures: [IndexPath] = [],
+    itemUpdates: [(itemId: ItemID, oldPath: IndexPath, newPath: IndexPath)] = []
+  ) {
+    self.sectionDeletes = sectionDeletes
+    self.sectionInserts = sectionInserts
+    self.sectionMoves = sectionMoves
+    self.sectionReloads = sectionReloads
+    self.itemDeletes = itemDeletes
+    self.itemInserts = itemInserts
+    self.itemMoves = itemMoves
+    self.itemReloads = itemReloads
+    self.itemReconfigures = itemReconfigures
+    self.itemUpdates = itemUpdates
+  }
+
   public var isEmpty: Bool {
     sectionDeletes.isEmpty
       && sectionInserts.isEmpty
