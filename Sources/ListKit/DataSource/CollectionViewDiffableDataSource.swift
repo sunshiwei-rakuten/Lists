@@ -42,17 +42,6 @@ public final class CollectionViewDiffableDataSource<
     IndexPath
   ) -> UICollectionReusableView?
 
-  /// Hook called after diff computation but before UIKit batch updates.
-  ///
-  /// Receives the computed changeset and the new snapshot. Must return a snapshot that
-  /// preserves the same section/item structure — only `reconfigureItems`, `reloadItems`,
-  /// and `reloadSections` mutations are permitted. Structural changes (append/delete/move)
-  /// will desync the changeset and crash `performBatchUpdates`.
-  public typealias WillApplyChangesetHandler = @MainActor (
-    StagedChangeset<SectionIdentifierType, ItemIdentifierType>,
-    DiffableDataSourceSnapshot<SectionIdentifierType, ItemIdentifierType>
-  ) -> DiffableDataSourceSnapshot<SectionIdentifierType, ItemIdentifierType>
-
   /// An optional closure for providing supplementary views (headers, footers).
   public var supplementaryViewProvider: SupplementaryViewProvider?
 
@@ -71,19 +60,13 @@ public final class CollectionViewDiffableDataSource<
   public func apply(
     _ snapshot: DiffableDataSourceSnapshot<SectionIdentifierType, ItemIdentifierType>,
     strategy: DiffStrategy = .full,
-    animatingDifferences: Bool = true,
-    willApplyChangeset: WillApplyChangesetHandler? = nil
+    animatingDifferences: Bool = true
   ) async {
     let previousTask = applyTask
     let task = Task { @MainActor in
       _ = await previousTask?.value
       guard !Task.isCancelled else { return }
-      await self.performApply(
-        snapshot,
-        strategy: strategy,
-        animatingDifferences: animatingDifferences,
-        willApplyChangeset: willApplyChangeset
-      )
+      await self.performApply(snapshot, strategy: strategy, animatingDifferences: animatingDifferences)
     }
     applyTask = task
     await task.value
@@ -96,7 +79,6 @@ public final class CollectionViewDiffableDataSource<
     _ snapshot: DiffableDataSourceSnapshot<SectionIdentifierType, ItemIdentifierType>,
     strategy: DiffStrategy = .full,
     animatingDifferences: Bool = true,
-    willApplyChangeset: WillApplyChangesetHandler? = nil,
     completion: (() -> Void)? = nil
   ) {
     let previousTask = applyTask
@@ -106,12 +88,7 @@ public final class CollectionViewDiffableDataSource<
         completion?()
         return
       }
-      await self.performApply(
-        snapshot,
-        strategy: strategy,
-        animatingDifferences: animatingDifferences,
-        willApplyChangeset: willApplyChangeset
-      )
+      await self.performApply(snapshot, strategy: strategy, animatingDifferences: animatingDifferences)
       completion?()
     }
   }
@@ -309,8 +286,7 @@ public final class CollectionViewDiffableDataSource<
   private func performApply(
     _ snapshot: DiffableDataSourceSnapshot<SectionIdentifierType, ItemIdentifierType>,
     strategy: DiffStrategy,
-    animatingDifferences: Bool,
-    willApplyChangeset: WillApplyChangesetHandler?
+    animatingDifferences: Bool
   ) async {
     let oldSnapshot = currentSnapshot
 
@@ -336,61 +312,37 @@ public final class CollectionViewDiffableDataSource<
       return
     }
 
+    // No changes — still advance the snapshot (may differ in metadata).
     if changeset.isEmpty {
       currentSnapshot = snapshot
       return
     }
 
-    // Hook: let the caller inspect the changeset and mark reconfigure/reload on the
-    // snapshot before UIKit applies batch updates. Structural mutations are forbidden.
-    var appliedSnapshot = snapshot
-    if let hook = willApplyChangeset {
-      appliedSnapshot = hook(changeset, appliedSnapshot)
-      #if DEBUG
-      assert(
-        appliedSnapshot.sectionIdentifiers == snapshot.sectionIdentifiers,
-        "willApplyChangeset must not modify section structure"
-      )
-      for sid in snapshot.sectionIdentifiers {
-        assert(
-          appliedSnapshot.itemIdentifiers(inSection: sid).count
-            == snapshot.itemIdentifiers(inSection: sid).count,
-          "willApplyChangeset must not modify item count in section \(sid)"
-        )
-      }
-      #endif
-    }
-
     if !animatingDifferences {
-      currentSnapshot = appliedSnapshot
+      currentSnapshot = snapshot
       collectionView.reloadData()
       return
     }
 
-    // Fast path: only reloads/reconfigures/itemUpdates, no structural changes.
+    // Fast path: only reloads/reconfigures, no structural changes.
     // Skip performBatchUpdates entirely — apply directly without the batch overhead.
     if !changeset.hasStructuralChanges {
-      currentSnapshot = appliedSnapshot
+      currentSnapshot = snapshot
       if !changeset.sectionReloads.isEmpty {
         collectionView.reloadSections(changeset.sectionReloads)
       }
       if !changeset.itemReloads.isEmpty {
         collectionView.reloadItems(at: changeset.itemReloads)
       }
-      let reconfigurePaths = mergedReconfigurePaths(
-        changeset: changeset,
-        original: snapshot,
-        applied: appliedSnapshot
-      )
-      if !reconfigurePaths.isEmpty {
-        collectionView.reconfigureItems(at: reconfigurePaths)
+      if !changeset.itemReconfigures.isEmpty {
+        collectionView.reconfigureItems(at: changeset.itemReconfigures)
       }
       return
     }
 
     await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
       collectionView.performBatchUpdates {
-        // Deletes (old indices) — MUST come before inserts
+        // Deletes (old indices)
         if !changeset.sectionDeletes.isEmpty {
           collectionView.deleteSections(changeset.sectionDeletes)
         }
@@ -415,9 +367,13 @@ public final class CollectionViewDiffableDataSource<
         }
 
         // Advance the snapshot INSIDE the batch block so UIKit sees old counts
-        // before the block and new counts after.
-        self.currentSnapshot = appliedSnapshot
+        // before the block and new counts after. Placing this before the block
+        // causes UIKit to read the new count for both pre and post, breaking its
+        // `pre_count + inserts - deletes == post_count` invariant.
+        self.currentSnapshot = snapshot
       } completion: { finished in
+        // Reloads and reconfigures run after the batch completes, using new indices.
+        // This matches Apple's NSDiffableDataSourceSnapshot behavior.
         guard finished, collectionView.window != nil else {
           continuation.resume()
           return
@@ -428,40 +384,12 @@ public final class CollectionViewDiffableDataSource<
         if !changeset.itemReloads.isEmpty {
           collectionView.reloadItems(at: changeset.itemReloads)
         }
-        let reconfigurePaths = self.mergedReconfigurePaths(
-          changeset: changeset,
-          original: snapshot,
-          applied: appliedSnapshot
-        )
-        if !reconfigurePaths.isEmpty {
-          collectionView.reconfigureItems(at: reconfigurePaths)
+        if !changeset.itemReconfigures.isEmpty {
+          collectionView.reconfigureItems(at: changeset.itemReconfigures)
         }
         continuation.resume()
       }
     }
-  }
-
-  /// Combines changeset-derived reconfigure paths with any hook-added reconfigures.
-  /// Hook-added reconfigures are identified by diffing the applied snapshot's
-  /// `reconfiguredItemIdentifiers` against the original (pre-hook) snapshot's.
-  private func mergedReconfigurePaths(
-    changeset: StagedChangeset<SectionIdentifierType, ItemIdentifierType>,
-    original: DiffableDataSourceSnapshot<SectionIdentifierType, ItemIdentifierType>,
-    applied: DiffableDataSourceSnapshot<SectionIdentifierType, ItemIdentifierType>
-  ) -> [IndexPath] {
-    let hookAddedIds = applied.reconfiguredItemIdentifiers.subtracting(original.reconfiguredItemIdentifiers)
-    guard !hookAddedIds.isEmpty else {
-      return changeset.itemReconfigures
-    }
-    var paths = changeset.itemReconfigures
-    for (sectionIdx, sectionID) in applied.sectionIdentifiers.enumerated() {
-      for (itemIdx, itemID) in applied.itemIdentifiers(inSection: sectionID).enumerated() {
-        if hookAddedIds.contains(itemID) {
-          paths.append(IndexPath(item: itemIdx, section: sectionIdx))
-        }
-      }
-    }
-    return paths
   }
 
 }

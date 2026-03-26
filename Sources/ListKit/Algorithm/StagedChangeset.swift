@@ -16,10 +16,6 @@ public struct StagedChangeset<SectionID: Hashable & Sendable, ItemID: Hashable &
   public let itemReloads: [IndexPath]
   public let itemReconfigures: [IndexPath]
 
-  /// Matched pairs where identity survived; content may have changed.
-  /// ID-centric: consumers look up objects by ID, index paths are informational only.
-  public let itemUpdates: [(itemId: ItemID, oldPath: IndexPath, newPath: IndexPath)]
-
   public init(
     sectionDeletes: IndexSet = IndexSet(),
     sectionInserts: IndexSet = IndexSet(),
@@ -29,8 +25,7 @@ public struct StagedChangeset<SectionID: Hashable & Sendable, ItemID: Hashable &
     itemInserts: [IndexPath] = [],
     itemMoves: [(from: IndexPath, to: IndexPath)] = [],
     itemReloads: [IndexPath] = [],
-    itemReconfigures: [IndexPath] = [],
-    itemUpdates: [(itemId: ItemID, oldPath: IndexPath, newPath: IndexPath)] = []
+    itemReconfigures: [IndexPath] = []
   ) {
     self.sectionDeletes = sectionDeletes
     self.sectionInserts = sectionInserts
@@ -41,7 +36,6 @@ public struct StagedChangeset<SectionID: Hashable & Sendable, ItemID: Hashable &
     self.itemMoves = itemMoves
     self.itemReloads = itemReloads
     self.itemReconfigures = itemReconfigures
-    self.itemUpdates = itemUpdates
   }
 
   public var isEmpty: Bool {
@@ -54,11 +48,9 @@ public struct StagedChangeset<SectionID: Hashable & Sendable, ItemID: Hashable &
       && itemMoves.isEmpty
       && itemReloads.isEmpty
       && itemReconfigures.isEmpty
-      && itemUpdates.isEmpty
   }
 
   /// Structural changes require `performBatchUpdates`.
-  /// `itemUpdates` is intentionally excluded: content change != structural change.
   public var hasStructuralChanges: Bool {
     !sectionDeletes.isEmpty
       || !sectionInserts.isEmpty
@@ -84,9 +76,5 @@ extension StagedChangeset: Equatable {
       && zip(lhs.itemMoves, rhs.itemMoves).allSatisfy { $0.from == $1.from && $0.to == $1.to }
       && lhs.itemReloads == rhs.itemReloads
       && lhs.itemReconfigures == rhs.itemReconfigures
-      && lhs.itemUpdates.count == rhs.itemUpdates.count
-      && zip(lhs.itemUpdates, rhs.itemUpdates).allSatisfy {
-        $0.itemId == $1.itemId && $0.oldPath == $1.oldPath && $0.newPath == $1.newPath
-      }
   }
 }

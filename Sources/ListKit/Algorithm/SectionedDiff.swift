@@ -6,7 +6,7 @@ import Foundation
 // MARK: - DiffStrategy
 
 public enum DiffStrategy: Sendable {
-  /// O(n) prefix check. Produces updates for matched prefix + inserts for tail.
+  /// O(n) prefix check. Produces inserts for tail items.
   /// Falls back to `.full` on any structural mismatch.
   case streaming
   /// Full two-level SectionedHeckel. Handles arbitrary deletes / inserts / moves.
@@ -40,45 +40,33 @@ enum SectionedDiff {
   // MARK: Private
 
   /// O(n) prefix-based diff: requires identical section order and old items being
-  /// a prefix of new items in every section. Produces `itemUpdates` for the matched
-  /// prefix and `itemInserts` for the tail. Falls back to `nil` on any mismatch.
+  /// a prefix of new items in every section. Produces `itemInserts` for the tail.
+  /// Falls back to `nil` on any mismatch.
   private static func streamingDiff<SectionID: Hashable & Sendable, ItemID: Hashable & Sendable>(
     old: DiffableDataSourceSnapshot<SectionID, ItemID>,
     new: DiffableDataSourceSnapshot<SectionID, ItemID>
   ) -> StagedChangeset<SectionID, ItemID>? {
-    // 1. Section IDs must be identical (order + content)
     guard old.sectionIdentifiers == new.sectionIdentifiers else {
       return nil
     }
 
     var itemInserts = [IndexPath]()
-    var itemUpdates = [(itemId: ItemID, oldPath: IndexPath, newPath: IndexPath)]()
 
-    // 2. Per-section: old items must be a prefix of new items
     for (sectionIdx, sectionID) in new.sectionIdentifiers.enumerated() {
       let oldItems = old.itemIdentifiers(inSection: sectionID)
       let newItems = new.itemIdentifiers(inSection: sectionID)
 
       guard newItems.count >= oldItems.count else { return nil }
 
-      // Verify prefix match
       for i in 0 ..< oldItems.count {
         guard oldItems[i] == newItems[i] else { return nil }
       }
 
-      // Matched prefix → itemUpdates (consumer decides if content actually changed)
-      for i in 0 ..< oldItems.count {
-        let path = IndexPath(item: i, section: sectionIdx)
-        itemUpdates.append((itemId: oldItems[i], oldPath: path, newPath: path))
-      }
-
-      // Tail → itemInserts
       for i in oldItems.count ..< newItems.count {
         itemInserts.append(IndexPath(item: i, section: sectionIdx))
       }
     }
 
-    // Collect reload/reconfigure markers from new snapshot
     var sectionReloads = IndexSet()
     if !new.reloadedSectionIdentifiers.isEmpty {
       for sectionID in new.reloadedSectionIdentifiers {
@@ -104,16 +92,10 @@ enum SectionedDiff {
     }
 
     return StagedChangeset(
-      sectionDeletes: IndexSet(),
-      sectionInserts: IndexSet(),
-      sectionMoves: [],
       sectionReloads: sectionReloads,
-      itemDeletes: [],
       itemInserts: itemInserts,
-      itemMoves: [],
       itemReloads: itemReloads,
-      itemReconfigures: itemReconfigures,
-      itemUpdates: itemUpdates
+      itemReconfigures: itemReconfigures
     )
   }
 
@@ -132,7 +114,6 @@ enum SectionedDiff {
     var itemDeletes = [IndexPath]()
     var itemInserts = [IndexPath]()
     var itemMoves = [(from: IndexPath, to: IndexPath)]()
-    var itemUpdates = [(itemId: ItemID, oldPath: IndexPath, newPath: IndexPath)]()
 
     let crossSectionPossible = old.numberOfSections > 1 || new.numberOfSections > 1
 
@@ -148,21 +129,11 @@ enum SectionedDiff {
       let oldItems = old.itemIdentifiers(inSection: oldSectionID)
       let newItems = new.itemIdentifiers(inSection: newSectionID)
 
-      // Fast path: identical items → no changes in this section
       if oldItems == newItems {
         continue
       }
 
       let itemDiff = HeckelDiff.diff(old: oldItems, new: newItems)
-
-      // Matched items → itemUpdates
-      for matched in itemDiff.matched {
-        itemUpdates.append((
-          itemId: oldItems[matched.old],
-          oldPath: IndexPath(item: matched.old, section: oldSectionIdx),
-          newPath: IndexPath(item: matched.new, section: newSectionIdx)
-        ))
-      }
 
       // Within-section moves
       for move in itemDiff.moves {
@@ -246,8 +217,7 @@ enum SectionedDiff {
       itemInserts: sortedItemInserts,
       itemMoves: itemMoves,
       itemReloads: itemReloads,
-      itemReconfigures: itemReconfigures,
-      itemUpdates: itemUpdates
+      itemReconfigures: itemReconfigures
     )
   }
 }
