@@ -318,47 +318,58 @@ public final class CollectionViewDiffableDataSource<
       return
     }
 
-    if !animatingDifferences {
+    // Non-animated structural changes: fall back to reloadData.
+    //
+    // performBatchUpdates calls cellForItemAt immediately for inserted items.
+    // When multiple applies are queued (async Task chain), storage may have
+    // advanced past this snapshot's state by the time the batch runs, causing
+    // cellProvider lookups to fail. reloadData is safe because it defers
+    // cellForItemAt to the next layout pass, by which time all queued applies
+    // have completed and storage/snapshot are consistent.
+    if !animatingDifferences && changeset.hasStructuralChanges {
       currentSnapshot = snapshot
       collectionView.reloadData()
       return
     }
 
     // Fast path: only reloads/reconfigures, no structural changes.
-    // Skip performBatchUpdates entirely — apply directly without the batch overhead.
+    // No cellForItemAt is triggered — safe even with async apply chains.
     if !changeset.hasStructuralChanges {
       currentSnapshot = snapshot
-      if !changeset.sectionReloads.isEmpty {
-        collectionView.reloadSections(changeset.sectionReloads)
+      let updates = {
+        if !changeset.sectionReloads.isEmpty {
+          collectionView.reloadSections(changeset.sectionReloads)
+        }
+        if !changeset.itemReloads.isEmpty {
+          collectionView.reloadItems(at: changeset.itemReloads)
+        }
+        if !changeset.itemReconfigures.isEmpty {
+          collectionView.reconfigureItems(at: changeset.itemReconfigures)
+        }
       }
-      if !changeset.itemReloads.isEmpty {
-        collectionView.reloadItems(at: changeset.itemReloads)
-      }
-      if !changeset.itemReconfigures.isEmpty {
-        collectionView.reconfigureItems(at: changeset.itemReconfigures)
+      if animatingDifferences {
+        updates()
+      } else {
+        UIView.performWithoutAnimation(updates)
       }
       return
     }
 
+    // Animated structural path — uses performBatchUpdates.
     await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
       collectionView.performBatchUpdates {
-        // Deletes (old indices)
         if !changeset.sectionDeletes.isEmpty {
           collectionView.deleteSections(changeset.sectionDeletes)
         }
         if !changeset.itemDeletes.isEmpty {
           collectionView.deleteItems(at: changeset.itemDeletes)
         }
-
-        // Inserts (new indices)
         if !changeset.sectionInserts.isEmpty {
           collectionView.insertSections(changeset.sectionInserts)
         }
         if !changeset.itemInserts.isEmpty {
           collectionView.insertItems(at: changeset.itemInserts)
         }
-
-        // Moves
         for move in changeset.sectionMoves {
           collectionView.moveSection(move.from, toSection: move.to)
         }
@@ -367,13 +378,9 @@ public final class CollectionViewDiffableDataSource<
         }
 
         // Advance the snapshot INSIDE the batch block so UIKit sees old counts
-        // before the block and new counts after. Placing this before the block
-        // causes UIKit to read the new count for both pre and post, breaking its
-        // `pre_count + inserts - deletes == post_count` invariant.
+        // before the block and new counts after.
         self.currentSnapshot = snapshot
       } completion: { finished in
-        // Reloads and reconfigures run after the batch completes, using new indices.
-        // This matches Apple's NSDiffableDataSourceSnapshot behavior.
         guard finished, collectionView.window != nil else {
           continuation.resume()
           return
